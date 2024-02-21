@@ -1,6 +1,12 @@
 package com.canvendor.docvault.service;
 
+import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.model.*;
+import com.canvendor.docvault.model.Document;
+import com.canvendor.docvault.model.DocumentLedger;
+import com.canvendor.docvault.repository.DocumentLedgerRepository;
+import com.canvendor.docvault.repository.DocumentRepository;
+import com.canvendor.docvault.request.UploadDocumentRequest;
 import com.canvendor.docvault.response.DocumentInfo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -8,36 +14,54 @@ import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-import com.amazonaws.services.s3.AmazonS3;
+
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
 public class DocumentService {
-
     @Autowired
     private AmazonS3 amazonS3;
+    @Autowired
+    private DocumentRepository documentRepository;
+    @Autowired
+    private DocumentLedgerRepository documentLedgerRepository;
 
     @Value("${aws.s3.bucketName}")
     private String bucketName;
 
-    public String uploadDocument(MultipartFile file) {
+    public String uploadDocument(MultipartFile documentFile, UploadDocumentRequest uploadDocumentRequest) {
         String documentId = UUID.randomUUID().toString();
-        String fileName = file.getOriginalFilename();
         try {
+
+            String fileExtension = documentFile.getContentType().substring(documentFile.getContentType().lastIndexOf('/') + 1);
+
+            // Upload document to Amazon S3
             ObjectMetadata metadata = new ObjectMetadata();
-            metadata.setContentLength(file.getSize());
-            metadata.setContentType(file.getContentType());
+            metadata.setContentLength(documentFile.getSize());
+            metadata.setContentType(documentFile.getContentType());
             Map<String, String> userMetadata = new HashMap<>();
-            userMetadata.put("fileName", fileName);
+            userMetadata.put("fileName", uploadDocumentRequest.getFileName());
             metadata.setUserMetadata(userMetadata);
 
-            amazonS3.putObject(bucketName, documentId, file.getInputStream(), metadata);
+            amazonS3.putObject(bucketName, documentId, documentFile.getInputStream(), metadata);
+
+
+            // Create Document entry
+            Document document = createDocumentEntity(documentId, uploadDocumentRequest.getFileName(), documentFile.getOriginalFilename(), uploadDocumentRequest.getUploadedBy(), fileExtension);
+            documentRepository.save(document);
+
+            // Create DocumentLedger entry
+            DocumentLedger ledgerEntry = createDocumentLedgerEntity(documentId, uploadDocumentRequest.getFileName(), documentFile.getOriginalFilename(), uploadDocumentRequest.getUploadedBy(), fileExtension);
+            documentLedgerRepository.save(ledgerEntry);
+
+            fileExtension = null;
         } catch (IOException e) {
             e.printStackTrace();
             // Handle exception
         }
-        return documentId;
+        return uploadDocumentRequest.getFileName();
     }
 
     public Resource downloadDocument(String documentId) {
@@ -68,8 +92,35 @@ public class DocumentService {
         amazonS3.deleteObject(bucketName, documentId);
     }
 
-    public void updateDocument(String documentId, MultipartFile file) {
+    public void updateDocument(String documentId,MultipartFile documentFile, UploadDocumentRequest uploadDocumentRequest) {
         deleteDocument(documentId); // Delete existing document
-        uploadDocument(file); // Upload new document with the same ID
+        uploadDocument(documentFile,uploadDocumentRequest); // Upload new document with the same ID
+    }
+
+    private Document createDocumentEntity(String documentId, String fileName, String originalFileName, String uploadedBy, String contentType) {
+        return Document.builder()
+                .documentId(documentId)
+                .documentName(fileName)
+                .documentOriginalName(originalFileName)
+                .uploadedBy(uploadedBy)
+                .uploadedDate(LocalDateTime.now())
+                .bucketName(bucketName)
+                .documentType(contentType)
+                .build();
+    }
+
+    private DocumentLedger createDocumentLedgerEntity(String documentId, String fileName, String originalFileName, String uploadedBy, String contentType) {
+        return DocumentLedger.builder()
+                .documentId(documentId)
+                .documentName(fileName)
+                .documentOriginalName(originalFileName)
+                .uploadedBy(uploadedBy)
+                .uploadedDate(LocalDateTime.now())
+                .bucketName(bucketName)
+                .documentType(contentType)
+                .operation("Upload")
+                .performedBy(uploadedBy)
+                .performedDate(LocalDateTime.now())
+                .build();
     }
 }

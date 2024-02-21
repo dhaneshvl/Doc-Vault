@@ -1,7 +1,9 @@
 package com.canvendor.docvault.controller;
 
+import com.canvendor.docvault.request.UploadDocumentRequest;
 import com.canvendor.docvault.response.DocumentInfo;
 import com.canvendor.docvault.service.DocumentService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -20,10 +22,11 @@ public class DocumentController {
     @Autowired
     private DocumentService documentService;
 
-    @PostMapping
-    public ResponseEntity<String> uploadDocument(@RequestParam("file") MultipartFile file) {
-        String documentId = documentService.uploadDocument(file);
-        return ResponseEntity.ok().body("Document uploaded successfully with ID: " + documentId);
+    @PostMapping("/upload")
+    public ResponseEntity<String> uploadDocument(@RequestParam("documentFile") MultipartFile documentFile,
+                                                 @Valid @ModelAttribute UploadDocumentRequest uploadDocumentRequest) {
+        String documentId = documentService.uploadDocument(documentFile, uploadDocumentRequest);
+        return ResponseEntity.ok().body("Document uploaded successfully with name: " + documentId);
     }
 
     @GetMapping("/{documentId}")
@@ -48,8 +51,8 @@ public class DocumentController {
     }
 
     @PutMapping("/{documentId}")
-    public ResponseEntity<String> updateDocument(@PathVariable String documentId, @RequestParam("file") MultipartFile file) {
-        documentService.updateDocument(documentId, file);
+    public ResponseEntity<String> updateDocument(@PathVariable String documentId,@RequestParam("documentFile") MultipartFile documentFile  , @Valid @RequestBody UploadDocumentRequest uploadDocumentRequest) {
+        documentService.updateDocument(documentId, documentFile,uploadDocumentRequest);
         return ResponseEntity.ok().body("Document updated successfully");
     }
 }
